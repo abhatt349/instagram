@@ -1,57 +1,111 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <sys/types.h>
-#include <sys/ipc.h>
-#include <sys/sem.h>
 #include <string.h>
+#include <errno.h>
+#include <sys/sem.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/stat.h>
 
-#define SEM 17
-#define SHM 49
+int main( int argc, const char *argv[] ) {
+    int semdescriptor;
+    int shmdescriptor;
+    int val;
+    int semkey;
+    int shmkey;
 
-int main(int argc, char** argv){
-  int sem_descriptor;
-  if (argc < 2) { //if less than two arguments in the arg vector ./a.out
-    printf("Missing arguments\n");
-  }
+    union semun {
+        int val;
+        struct semid_ds *buf;
+        unsigned short * array;
+    } arg;
 
-  //to create the semaphore with the -c flag
-  else if(!strcmp(argv[1], "-c") && argc == 3){ //if they ran $ ./a.out -c N
-    int hl = shmget(SHM, 1024, IPC_CREAT | IPC_EXCL);
-    int ab = open( "story", O_TRUNC | O_CREAT);
-    
-    sem_descriptor = semget(SEM, 1, IPC_CREAT | IPC_EXCL | 0644);
-    if(sem_descriptor == -1) {
-      printf("Semaphore already existent\n");
+    if (argc < 2) {
+        printf("uhhhhh arguments please?\n");
+        return 0;
     }
-    else{
-      int val;
-      sscanf(argv[2], "%d", &val);
-      semctl(sem_descriptor, 0, SETVAL, val);
-      printf("Semaphore created: %d\t with value: %d\n",sem_descriptor, val);
-    }
-  }
+    //uses the dir and an int to create a unique key
+    semkey= ftok("./", 'B');
+    shmkey= ftok("./", 'A');
 
-  //to view the value of the semaphore with the -v flag
-  else if(!strcmp(argv[1], "-v")) {
-    //sem_descriptor = semget(SEM, 0, 0);
-    //printf("Semaphore value: %d\n",semctl(sem_descriptor, 0, GETVAL));
-    int f = fork();
-    if (!f) {
-      execlp("cat", "cat", "story");
+    if (!strcmp(argv[1], "-c")) {
+        //else
+        //returns id of reated semaphore with the same key
+        semdescriptor = semget(semkey, 1, IPC_CREAT | IPC_EXCL | 0644);
+        if (semdescriptor == -1) {
+            fprintf(stderr,"UH RROR: %s\n", strerror(errno));
+            return 0;
+        }
+        arg.val = 1;
+        val = semctl(semdescriptor, 0, SETVAL, arg.val);
+        if (val == -1) {
+            fprintf(stderr, "ERROR: %s\n", strerror(errno));
+            return 0;
+        }
+        printf("Semaphore created: %d\n",semdescriptor);
+
+        shmdescriptor = shmget(shmkey, sizeof(int), IPC_CREAT | IPC_EXCL | 0600);
+        if (val == -1) {
+            fprintf(stderr, "ERROR: %s\n", strerror(errno));
+            return 0;
+        }
+        printf("Shared Memory allocated: %d\n", val);
+
+        int f = open("story.txt", O_CREAT | O_RDWR | O_TRUNC, 0644);
+        printf("story file created\n");
+        close(f);
     }
 
-  }
+    else if (!strcmp(argv[1], "-v")){
+        char story[5000];
 
-  //to remove the semaphore with the -r flag
-  else if(!strcmp(argv[1], "-r")) {
-    shmctl( hl, IPC-RMID);
-    sem_descriptor = semget(SEM, 0, 0);
-    printf("Semaphore removed: %d\n", semctl(sem_descriptor, 0, IPC_RMID));
-    int f = fork();
-    if (!f) {
-      execlp("cat", "cat", "story");
+        struct stat sb;
+        stat("story.txt", &sb);
+
+        int f = open("story.txt", O_RDONLY, 0644);
+        if (f == -1) {
+            fprintf(stderr, "ERROR: %s\n", strerror(errno));
+            return 0;
+        }
+        read(f, &story, sb.st_size);
+
+        printf("Story: \n");
+        printf("%s\n", story);
+
+        close(f);
     }
-    
-  }
-  return 0;
+
+    else if (!strcmp(argv[1], "-r")) {
+        semdescriptor = semget(semkey, 0, 0);
+        val = semctl(semdescriptor, 0,  IPC_RMID);
+        if (val == -1) {
+            fprintf(stderr, "ERROR: %s\n", strerror(errno));
+            return 0;
+        }
+        printf("Semaphore removed: %d\n", val); 
+
+        shmdescriptor = shmget(shmkey, sizeof(char) * 256, 0);
+        val = shmctl(shmdescriptor, IPC_RMID, 0);
+        printf("Shared memory removed\n");
+
+        char story[5000];
+
+        struct stat sb;
+        stat("story.txt", &sb);
+
+        int f = open("story.txt", O_RDONLY, 0644);
+        read(f, &story, sb.st_size);
+
+        printf("\n\nStory: \n");
+        printf("%s\n", story);
+
+        close(f);
+    }
+    else {
+        printf("Winvalid command!\n");
+    }
+
+    return 0;
 }
